@@ -1,0 +1,112 @@
+using SRMSvEOU.classes;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+using System.Xml;
+
+namespace SRMSvEOU
+{
+    /* *** PUNCHOUT SETUP REQUEST *** */
+
+    public partial class bossrposr : System.Web.UI.Page
+    {
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            cSystemAvailability sa = new cSystemAvailability();
+            string responseToSend = "";
+            string shoppingURL = Request.Url.OriginalString.Replace(Request.Url.PathAndQuery, "");
+
+            if (sa.IsSystemAvailable())
+            {
+                XmlDocument d = new XmlDocument();
+                cErrorLog el = new cErrorLog();
+                string incomingXML = "";
+                byte[] incomingXMLBytes;
+                int totalBytes = 0;
+                cBossPOR request = new cBossPOR();
+                string timeNow = DateTime.Now.ToString("yyyyMMddHHmmss");
+
+                try
+                {
+                    //if (HttpContext.Current.Request.HttpMethod == "POST")
+                    {
+                        totalBytes = Request.TotalBytes;
+
+                        if (totalBytes > 0)
+                        {
+                            incomingXMLBytes = Request.BinaryRead(totalBytes);
+                            incomingXML = System.Text.Encoding.UTF8.GetString(incomingXMLBytes, 0, incomingXMLBytes.Length);
+
+                            el.AddError("BOSS", cErrorLog.TypeBOSS, "Received POR", 0, "", 8, 1, "", incomingXML, true, 0, 0);
+                            
+                            // strip off two header lines
+                            incomingXML = incomingXML.Substring(incomingXML.IndexOf("<cXML"));
+                            incomingXML = incomingXML.Replace("&", "&amp;"); // account for ampersands
+
+                            d.LoadXml(incomingXML);
+
+                            if (request.ReadPOR(d))
+                            {
+
+                                int newID = request.Add();
+
+                                if (newID > 0)
+                                {
+                                    string isDevSystem = System.Web.Configuration.WebConfigurationManager.AppSettings["IsDevSystem"];
+                                    if (string.IsNullOrEmpty(isDevSystem)) { isDevSystem = ""; }
+                                    string pathFolder = "";
+                                    if (isDevSystem == "1")
+                                    {
+                                        pathFolder = "/srmsdev";
+                                    }
+                                    else
+                                    {
+                                        pathFolder = "/shop";
+                                    }
+                                    responseToSend = cBoss.PORResponse(request.BuyerCookie, "200", "OK", shoppingURL + pathFolder + "/bossrpossp.aspx?id=" + timeNow + newID);
+                                }
+                                else
+                                {
+                                    responseToSend = cBoss.PORResponse(request.BuyerCookie, "400", "Request is invalid", "");
+                                }
+                            }
+                            else
+                            {
+                                responseToSend = cBoss.PORResponse(request.BuyerCookie, "400", "Could Not Parse Request", "");
+                            }
+
+
+                        }
+                        else
+                        {
+                            responseToSend = cBoss.PORResponse("", "400", "No Content", "");
+                        }
+                    }
+                    //else
+                    //{
+                    //    el.AddError("BOSS", cErrorLog.TypeBOSS, "Received POR", 0, "HttpMethod: " + HttpContext.Current.Request.HttpMethod, 8, 1, "", incomingXML, true, 0, 0);
+                    //
+                    //    responseToSend = cBoss.PORResponse("", "400", "Not a Post", "");
+                    //}
+                }
+                catch (Exception ex)
+                {
+                    responseToSend = cBoss.PORResponse("", "400", "Unknown Error", "");
+                }
+            }
+            else
+            {
+                responseToSend = cBoss.PORResponse("", "400", "System Not Available", "");
+            }
+
+            Response.Clear();
+            Response.Buffer = true;
+            Response.ContentType = "text/xml";
+            Response.Write(responseToSend);
+            Response.End();
+        }
+    }
+}
