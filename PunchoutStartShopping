@@ -1,0 +1,126 @@
+using DevExpress.XtraRichEdit.Import.Html;
+using NPOI.SS.Formula.Functions;
+using SRMSvEOU.classes;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+
+namespace SRMSvEOU
+{
+    /* *** PUNCHOUT SHOPPING START PAGE *** */
+    
+    public partial class bossrpossp : System.Web.UI.Page
+    {
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            cSystemAvailability sa = new cSystemAvailability();
+            cBoss b = new cBoss();
+            string responseToSend = "";
+
+            if (sa.IsSystemAvailable())
+            {
+                if (Request.QueryString["id"] != null)
+                {
+                    string porID = Request.QueryString["id"];
+                    int idToLoad;
+
+                    if (porID.Length >= 15) // accounts for a single digit buyer cookie value
+                    {
+                        cBossPOR por = new cBossPOR();
+                        cAccount a = new cAccount();
+                        cAccountStore aa = new cAccountStore();
+                        cAccountUser au = new cAccountUser();
+                        cShoppingCart sc = new cShoppingCart();
+
+                        porID = porID.Substring(14);
+                        if (int.TryParse(porID, out idToLoad))
+                        {
+                            if (por.Load(idToLoad))
+                            {
+                                TimeSpan difference = DateTime.UtcNow - por.WhenAdded;
+
+                                if (difference.TotalMinutes < 50)
+                                {
+                                    switch(por.FROMIdentity)
+                                    {
+                                        case "chicos":
+                                            a.LoadAccount(2, 1, 8);
+                                            break;
+                                        case "soma":
+                                            a.LoadAccount(4, 1, 8);
+                                            break;
+                                        case "whbm":
+                                            a.LoadAccount(5, 1, 8);
+                                            break;
+                                    }
+
+                                    aa.LoadStoreFromServiceProviderStoreNumber(a.ID, por.StoreIdentifier);
+
+                                    if ((a.ID > 0) && (aa.ID > 0))
+                                    {
+                                        Session["AccountInfo"] = a;
+                                        Session["AccountStore"] = aa;
+
+                                        if (au.LoadUserFromStoreNumber(a.ID, por.StoreIdentifier))
+                                        {
+                                            au.CountOfAssociatedAccounts = 1;
+                                            Session["UserInfo"] = au;
+
+                                            if (sc.LoadIfOpenShoppingCartExists(a.ID, aa.ID, 1, aa.ID))
+                                            {
+                                                if (sc.ShoppingCartStatusID == 1)
+                                                {
+                                                    // there has been an issue with users coming in while a cart is still open.
+                                                    // this is meant to make sure that users do not distirub the existing carts
+                                                    // and instead create a new cart
+                                                    // status of 11 means we are waiting for a reply from client
+                                                    sc.UpdateShoppingCartStatus(sc.ID, 11, DateTime.UtcNow, 1, au.ID, false);
+                                                }
+                                            }
+
+                                            Session["BOSS"] = por;
+
+                                            Response.Redirect("~/default.aspx", false);
+                                        }
+                                        else
+                                        {
+                                            responseToSend = cBoss.PORResponse(Request.QueryString["id"], "400", "Could not create session", "");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        responseToSend = cBoss.PORResponse(Request.QueryString["id"], "400", "Could not process id", "");
+                                    }
+                                }
+                                else
+                                {
+                                    responseToSend = cBoss.PORResponse(Request.QueryString["id"], "400", "Could not process id", "");
+                                }
+                            }
+                            else
+                            {
+                                responseToSend = cBoss.PORResponse(Request.QueryString["id"], "400", "Could not process id", "");
+                            }
+                        }
+                        else
+                        {
+                            responseToSend = cBoss.PORResponse(Request.QueryString["id"], "400", "Could not process id", "");
+                        }
+                    }
+                    else
+                    {
+                        responseToSend = cBoss.PORResponse(Request.QueryString["id"], "400", "ID Is Invalid", "");
+                    }
+                }
+                else
+                {
+                    responseToSend = cBoss.PORResponse(Request.QueryString["id"], "400", "No ID To Process", "");
+                }
+
+            }
+        }
+    }
+}
